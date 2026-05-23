@@ -6,13 +6,16 @@
 #include <QVector>
 #include <QPointF>
 #include <QColor>
+#include <QStringList>
 
 struct TreeNodeData {
     int id;
     QString label;
     int parentId;
     QColor color = Qt::white;
-    bool isRed = false; // for red-black tree
+    bool isRed = false;
+    QStringList keys;
+    bool isBTreeNode = false;
 };
 
 class TreeWidget : public QWidget {

@@ -35,6 +35,14 @@ void TreeWidget::setData(const QVariantMap &data)
         tn.label = nm.value("label").toString();
         tn.parentId = nm.value("parentId", -1).toInt();
         tn.isRed = nm.value("isRed", false).toBool();
+        tn.isBTreeNode = nm.value("isBTreeNode", false).toBool();
+
+        if (nm.contains("keys")) {
+            QVariantList kl = nm.value("keys").toList();
+            for (const auto &k : kl)
+                tn.keys.append(k.toString());
+        }
+
         tn.color = tn.isRed ? QColor("#ff6b6b") : QColor("#e8f5e9");
         if (nm.contains("color")) {
             tn.color = QColor(nm.value("color").toString());
@@ -54,7 +62,6 @@ void TreeWidget::layoutTree()
     m_positions.clear();
     if (m_nodes.isEmpty()) return;
 
-    // Build adjacency from edges
     QMap<int, QVector<int>> children;
     int rootId = -1;
     for (const auto &n : m_nodes) {
@@ -63,7 +70,6 @@ void TreeWidget::layoutTree()
     }
     if (rootId < 0 && !m_nodes.isEmpty()) rootId = m_nodes[0].id;
 
-    // BFS level order, then spread horizontally
     QMap<int, int> depth;
     QMap<int, double> xCoord;
     QVector<int> bfs = {rootId};
@@ -87,9 +93,19 @@ void TreeWidget::layoutTree()
     for (auto it = levelNodes.begin(); it != levelNodes.end(); ++it) {
         int d = it.key();
         auto &nodes = it.value();
-        double hSpacing = (double)(width() - 40) / (nodes.size() + 1);
+        // B-tree nodes need more horizontal space per node
+        double extraPerNode = 0;
+        for (int nid : nodes) {
+            for (const auto &nd : m_nodes) {
+                if (nd.id == nid && nd.isBTreeNode) {
+                    extraPerNode = qMax(extraPerNode, (double)(nd.keys.size() * 12));
+                }
+            }
+        }
+        double hSpacing = (double)(width() - 40 - extraPerNode * nodes.size()) / (nodes.size() + 1);
+        hSpacing = qMax(hSpacing, 20.0);
         for (int j = 0; j < nodes.size(); j++) {
-            xCoord[nodes[j]] = 20 + (j + 1) * hSpacing;
+            xCoord[nodes[j]] = 20 + (j + 1) * (hSpacing + extraPerNode);
         }
     }
 
@@ -124,20 +140,54 @@ void TreeWidget::paintEvent(QPaintEvent *)
         painter.drawLine(p1, p2);
     }
 
-    // Draw nodes
     QFont font = painter.font();
     font.setPointSize(9);
     painter.setFont(font);
 
     for (int i = 0; i < m_nodes.size(); i++) {
         QPointF pos = m_positions[i];
-        QRectF nodeRect(pos.x() - m_nodeRadius, pos.y() - m_nodeRadius,
-                        m_nodeRadius * 2, m_nodeRadius * 2);
 
-        painter.setBrush(m_nodes[i].color);
-        painter.setPen(QPen(Qt::black, 1.5));
-        painter.drawEllipse(nodeRect);
-        painter.drawText(nodeRect, Qt::AlignCenter, m_nodes[i].label);
+        if (m_nodes[i].isBTreeNode) {
+            // Draw rounded rectangle for B-tree node
+            double rw = m_nodeRadius * 0.9 + m_nodes[i].keys.size() * 12;
+            double rh = m_nodeRadius * 1.6;
+            QRectF nodeRect(pos.x() - rw, pos.y() - rh, rw * 2, rh * 2);
+
+            painter.setBrush(m_nodes[i].color);
+            painter.setPen(QPen(Qt::black, 1.5));
+            painter.drawRoundedRect(nodeRect, 6, 6);
+
+            // Draw key compartments separated by vertical lines
+            if (m_nodes[i].keys.size() > 1) {
+                double compartmentW = nodeRect.width() / m_nodes[i].keys.size();
+                painter.setPen(QPen(QColor("#ccc"), 1));
+                for (int k = 1; k < m_nodes[i].keys.size(); k++) {
+                    double lx = nodeRect.left() + k * compartmentW;
+                    painter.drawLine(QPointF(lx, nodeRect.top() + 3),
+                                     QPointF(lx, nodeRect.bottom() - 3));
+                }
+            }
+
+            // Draw key texts
+            if (!m_nodes[i].keys.isEmpty()) {
+                double cw = nodeRect.width() / m_nodes[i].keys.size();
+                painter.setPen(Qt::black);
+                for (int k = 0; k < m_nodes[i].keys.size(); k++) {
+                    QRectF keyRect(nodeRect.left() + k * cw, nodeRect.top(),
+                                   cw, nodeRect.height());
+                    painter.drawText(keyRect, Qt::AlignCenter, m_nodes[i].keys[k]);
+                }
+            }
+        } else {
+            // Draw circle (original behavior)
+            QRectF nodeRect(pos.x() - m_nodeRadius, pos.y() - m_nodeRadius,
+                            m_nodeRadius * 2, m_nodeRadius * 2);
+
+            painter.setBrush(m_nodes[i].color);
+            painter.setPen(QPen(Qt::black, 1.5));
+            painter.drawEllipse(nodeRect);
+            painter.drawText(nodeRect, Qt::AlignCenter, m_nodes[i].label);
+        }
     }
 
     painter.setPen(Qt::black);
